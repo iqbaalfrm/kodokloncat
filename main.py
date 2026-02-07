@@ -10,6 +10,7 @@ from datetime import datetime
 TOKEN = "8591550376:AAF0VMvdW5K376uJS17L9eQ9gmW21RwXwuQ"
 DB_NAME = "kodok_private.db"
 ADMIN_ID = 834018428 
+INTERVAL = 180  # 180 detik = 3 menit
 # =================================================
 
 def setup_db():
@@ -36,35 +37,35 @@ def get_market_data():
         "p2p": {"idr_buy": "• Offline", "idr_sell": "• Offline", "sar_buy": "• Offline", "sar_sell": "• Offline"}
     }
     try:
-        # 1. Currency Rates
+        # 1. Currency Rates & Binance Benchmark
         try:
             res_sar = requests.get("https://api.exchangerate-api.com/v4/latest/SAR", timeout=10).json()
             sar_to_idr = res_sar['rates']['IDR']
             res_u = requests.get("https://api.binance.me/api/v3/ticker/price?symbol=USDTIDR", timeout=10).json()
             u_idr = float(res_u['price'])
             data['rates'] = {'s_idr': sar_to_idr, 'i_sar': 1/sar_to_idr, 'u_idr': u_idr, 'i_u': 1/u_idr}
-        except: pass
+        except: 
+            u_idr = 16900 # Fallback jika API kurs mati
 
-        # 2. Spot Prices (More Robust)
+        # 2. Spot Prices (Anti Rp 0 Logic)
         try:
-            # Benchmark Binance (Toko & OSL)
-            u_idr_val = data['rates']['u_idr'] if data['rates']['u_idr'] > 0 else 16900
-            
             # Indodax
             idx_req = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5).json()
             idx = float(idx_req['ticker']['last'])
-            
+        except: idx = u_idr
+
+        try:
             # Pintu Pro
             pnt_req = requests.get("https://api.pintu.co.id/v2/trade/price-changes", timeout=5).json()
-            pnt = next((float(i['latestPrice']) for i in pnt_req['data'] if i['pair'].lower() == 'usdt/idr'), 0)
-            
-            data['spots'] = {
-                'Tokocrypto': u_idr_val, 
-                'Indodax': idx if idx > 0 else u_idr_val, 
-                'Pintu Pro': pnt if pnt > 0 else u_idr_val, 
-                'OSL': u_idr_val
-            }
-        except: pass
+            pnt = next((float(i['latestPrice']) for i in pnt_req['data'] if i['pair'].lower() == 'usdt/idr'), u_idr)
+        except: pnt = u_idr
+        
+        data['spots'] = {
+            'Tokocrypto': u_idr, 
+            'Indodax': idx, 
+            'Pintu Pro': pnt, 
+            'OSL': u_idr
+        }
 
         # 3. P2P Markets
         data['p2p'] = {
@@ -74,7 +75,7 @@ def get_market_data():
             "sar_sell": get_p2p_api('SAR', 'SELL')
         }
     except Exception as e:
-        print(f"Global Data Error: {e}")
+        print(f"Data Fetch Warning: {e}")
     return data
 
 def get_p2p_api(fiat, trade_type):
@@ -96,7 +97,7 @@ def get_p2p_api(fiat, trade_type):
 def run_server():
     setup_db()
     tz = pytz.timezone('Asia/Jakarta')
-    print("🐸 KODOKLONCAT v6.5 (Admin & Exit Ready)!")
+    print(f"🐸 KODOKLONCAT v6.6 LIVE! (Interval: {INTERVAL}s)")
 
     while True:
         try:
@@ -116,20 +117,15 @@ def run_server():
                     if txt.startswith("/add"):
                         target = int(txt.split(" ")[1])
                         conn = sqlite3.connect(DB_NAME); conn.execute("INSERT OR IGNORE INTO whitelist VALUES (?, ?)", (target, datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S'))); conn.commit(); conn.close()
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": f"✅ ID {target} Added."})
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": f"✅ ID {target} Ditambahkan."})
                     
-                    elif txt.startswith("/del"):
-                        target = int(txt.split(" ")[1])
-                        conn = sqlite3.connect(DB_NAME); conn.execute("DELETE FROM whitelist WHERE chat_id=?", (target,)); conn.commit(); conn.close()
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": f"❌ ID {target} Deleted."})
-
                     elif txt == "/list":
                         conn = sqlite3.connect(DB_NAME); users = conn.execute("SELECT chat_id FROM whitelist").fetchall(); conn.close()
-                        list_msg = "📋 *WHITELIST USERS:*\n" + "\n".join([f"• `{u[0]}`" for u in users])
+                        list_msg = "📋 *WHITELIST:*\n" + "\n".join([f"• `{u[0]}`" for u in users])
                         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": list_msg, "parse_mode": "Markdown"})
 
                     elif txt == "/exit":
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": "🐸 Kodokloncat Stopped."})
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": "🐸 Bot Off."})
                         sys.exit()
 
             # Broadcast Data
@@ -160,9 +156,9 @@ def run_server():
                 try: requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": mid, "text": p, "parse_mode": "Markdown"})
                 except: pass
 
-            time.sleep(60)
+            time.sleep(INTERVAL)
         except Exception as e:
-            print(f"Loop Error: {e}")
+            print(f"Error: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
