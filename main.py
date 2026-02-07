@@ -97,7 +97,7 @@ def get_p2p_api(fiat, trade_type):
 def run_server():
     setup_db()
     tz = pytz.timezone('Asia/Jakarta')
-    print(f"🐸 KODOKLONCAT v6.6 LIVE! (Interval: {INTERVAL}s)")
+    print(f"🐸 KODOKLONCAT v6 LIVE! (Interval: {INTERVAL}s)")
 
     while True:
         try:
