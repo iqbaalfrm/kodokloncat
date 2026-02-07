@@ -8,27 +8,19 @@ from datetime import datetime
 
 # ================= CONFIGURATION =================
 TOKEN = "8591550376:AAF0VMvdW5K376uJS17L9eQ9gmW21RwXwuQ"
-DB_NAME = "kodok_private.db"
+DB_NAME = "kodok_public.db"
 ADMIN_ID = 834018428 
-INTERVAL = 180  # 180 detik = 3 menit
+INTERVAL = 180  # 3 Menit
 # =================================================
 
 def setup_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS whitelist 
-                 (chat_id INTEGER PRIMARY KEY, added_at TEXT)''')
+    # Tabel members sekarang otomatis terisi siapa pun yang chat /start
+    c.execute('''CREATE TABLE IF NOT EXISTS members 
+                 (chat_id INTEGER PRIMARY KEY, joined_at TEXT)''')
     conn.commit()
     conn.close()
-
-def is_authorized(chat_id):
-    if chat_id == ADMIN_ID: return True
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        res = conn.execute("SELECT 1 FROM whitelist WHERE chat_id=?", (chat_id,)).fetchone()
-        conn.close()
-        return True if res else False
-    except: return False
 
 def get_market_data():
     data = {
@@ -45,27 +37,20 @@ def get_market_data():
             u_idr = float(res_u['price'])
             data['rates'] = {'s_idr': sar_to_idr, 'i_sar': 1/sar_to_idr, 'u_idr': u_idr, 'i_u': 1/u_idr}
         except: 
-            u_idr = 16900 # Fallback jika API kurs mati
+            u_idr = 16900 # Fallback
 
-        # 2. Spot Prices (Anti Rp 0 Logic)
+        # 2. Spot Prices
         try:
-            # Indodax
             idx_req = requests.get("https://indodax.com/api/ticker/usdtidr", timeout=5).json()
             idx = float(idx_req['ticker']['last'])
         except: idx = u_idr
 
         try:
-            # Pintu Pro
             pnt_req = requests.get("https://api.pintu.co.id/v2/trade/price-changes", timeout=5).json()
             pnt = next((float(i['latestPrice']) for i in pnt_req['data'] if i['pair'].lower() == 'usdt/idr'), u_idr)
         except: pnt = u_idr
         
-        data['spots'] = {
-            'Tokocrypto': u_idr, 
-            'Indodax': idx, 
-            'Pintu Pro': pnt, 
-            'OSL': u_idr
-        }
+        data['spots'] = {'Tokocrypto': u_idr, 'Indodax': idx, 'Pintu Pro': pnt, 'OSL': u_idr}
 
         # 3. P2P Markets
         data['p2p'] = {
@@ -74,8 +59,7 @@ def get_market_data():
             "sar_buy": get_p2p_api('SAR', 'BUY'),
             "sar_sell": get_p2p_api('SAR', 'SELL')
         }
-    except Exception as e:
-        print(f"Data Fetch Warning: {e}")
+    except: pass
     return data
 
 def get_p2p_api(fiat, trade_type):
@@ -94,14 +78,14 @@ def get_p2p_api(fiat, trade_type):
         return "• Market Busy"
     except: return "• Connection Error"
 
-def run_server():
+def run_public_server():
     setup_db()
     tz = pytz.timezone('Asia/Jakarta')
-    print(f"🐸 KODOKLONCAT v6 LIVE! (Interval: {INTERVAL}s)")
+    print("🐸 KODOKLONCAT v7.0 (OPEN PUBLIC) LIVE!")
 
     while True:
         try:
-            # Handle Admin Commands
+            # 1. Handle New Users (Auto Register)
             upd_url = f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset=-1"
             upds = requests.get(upd_url, timeout=10).json()
             if upds.get("ok") and upds.get("result"):
@@ -110,36 +94,31 @@ def run_server():
                 txt = m.get("text", "")
                 
                 if txt == "/start":
-                    msg = "🐸 *KODOKLONCAT PRIVATE*" if is_authorized(cid) else f"🔒 *AKSES TERBATAS*\nID: `{cid}`"
-                    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": msg, "parse_mode": "Markdown"})
+                    conn = sqlite3.connect(DB_NAME)
+                    conn.execute("INSERT OR IGNORE INTO members VALUES (?, ?)", (cid, datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')))
+                    conn.commit(); conn.close()
+                    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                  data={"chat_id": cid, "text": "🐸 *KODOKLONCAT PUBLIC*\nSelamat datang! Kamu akan menerima update harga tiap 3 menit otomatis.", "parse_mode": "Markdown"})
                 
+                # Admin-Only Commands
                 if cid == ADMIN_ID:
-                    if txt.startswith("/add"):
-                        target = int(txt.split(" ")[1])
-                        conn = sqlite3.connect(DB_NAME); conn.execute("INSERT OR IGNORE INTO whitelist VALUES (?, ?)", (target, datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S'))); conn.commit(); conn.close()
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": f"✅ ID {target} Ditambahkan."})
-                    
-                    elif txt == "/list":
-                        conn = sqlite3.connect(DB_NAME); users = conn.execute("SELECT chat_id FROM whitelist").fetchall(); conn.close()
-                        list_msg = "📋 *WHITELIST:*\n" + "\n".join([f"• `{u[0]}`" for u in users])
+                    if txt == "/list":
+                        conn = sqlite3.connect(DB_NAME); users = conn.execute("SELECT chat_id FROM members").fetchall(); conn.close()
+                        list_msg = f"📊 *TOTAL USERS: {len(users)}*\n" + "\n".join([f"• `{u[0]}`" for u in users])
                         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": list_msg, "parse_mode": "Markdown"})
-
                     elif txt == "/exit":
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": "🐸 Bot Off."})
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": "🐸 Bot Stopped."})
                         sys.exit()
 
-            # Broadcast Data
+            # 2. Broadcast Data
             d = get_market_data()
             now_str = datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')
             
-            p = f"🐸 *KODOKLONCAT PRIVATE*\n📅 `{now_str} WIB`\n"
+            p = f"🐸 *KODOKLONCAT UPDATE*\n📅 `{now_str} WIB`\n"
             p += f"──────────────────────\n💱 *CURRENCY RATES*\n"
             p += f"• `1 SAR  = Rp {d['rates'].get('s_idr', 0):,.2f}`\n"
-            p += f"• `1 IDR  = {d['rates'].get('i_sar', 0):.8f} SAR`\n"
             p += f"• `1 USDT = Rp {d['rates'].get('u_idr', 0):,.2f}`\n"
-            p += f"• `1 IDR  = {d['rates'].get('i_u', 0):.8f} USDT`\n"
             p += f"──────────────────────\n\n🇮🇩 *INDONESIA MARKET*\n📈 *Spot Prices:*\n"
-            
             for name, price in d.get('spots', {}).items():
                 p += f"• `{name.ljust(9)}: Rp {price:,.0f}`\n"
             
@@ -149,7 +128,7 @@ def run_server():
             p += f"📱 *P2P Buy (Saudi):*\n{p2p.get('sar_buy')}\n🛒 *P2P Sell (Saudi):*\n{p2p.get('sar_sell')}"
 
             conn = sqlite3.connect(DB_NAME)
-            users = [r[0] for r in conn.execute("SELECT chat_id FROM whitelist").fetchall()]
+            users = [r[0] for r in conn.execute("SELECT chat_id FROM members").fetchall()]
             conn.close()
             
             for mid in set(users + [ADMIN_ID]):
@@ -162,4 +141,4 @@ def run_server():
             time.sleep(10)
 
 if __name__ == "__main__":
-    run_server()
+    run_public_server()
