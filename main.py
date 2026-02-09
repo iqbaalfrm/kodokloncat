@@ -10,7 +10,7 @@ from datetime import datetime
 TOKEN = "8591550376:AAF0VMvdW5K376uJS17L9eQ9gmW21RwXwuQ"
 DB_NAME = "kodok_public.db"
 ADMIN_ID = 834018428 
-INTERVAL = 180  # Kembali ke 3 menit (Ubah ke 5 jika masih debug)
+INTERVAL = 180  # 3 Menit (Ganti ke 5 jika sedang debug)
 # =================================================
 
 def setup_db():
@@ -27,15 +27,14 @@ def get_market_data():
         "p2p": {"idr_buy": "• Offline", "idr_sell": "• Offline", "sar_buy": "• Offline", "sar_sell": "• Offline"}
     }
     try:
-        # 1. Currency Rates & Binance Benchmark
+        # 1. Currency Rates
         try:
             res_sar = requests.get("https://api.exchangerate-api.com/v4/latest/SAR", timeout=10).json()
             data['rates']['s_idr'] = res_sar['rates']['IDR']
             res_u = requests.get("https://api.binance.me/api/v3/ticker/price?symbol=USDTIDR", timeout=10).json()
             u_idr = float(res_u['price'])
             data['rates']['u_idr'] = u_idr
-        except: 
-            u_idr = 16900 
+        except: u_idr = 16900 
 
         # 2. Spot Prices
         try:
@@ -69,7 +68,8 @@ def get_p2p_api(fiat, trade_type):
             for a in res['data']:
                 p = float(a['adv']['price'])
                 n = a['advertiser']['nickName'][:10].ljust(10)
-                text += f"`{n} : {'Rp' if fiat == 'IDR' else 'SR'} {p:,.2f}`\n"
+                curr = "Rp" if fiat == "IDR" else "SR"
+                text += f"`{n}: {curr} {p:,.2f}`\n"
             return text if text else "• No Sellers"
         return "• Market Busy"
     except: return "• Connection Error"
@@ -77,7 +77,7 @@ def get_p2p_api(fiat, trade_type):
 def run_server():
     setup_db()
     tz = pytz.timezone('Asia/Jakarta')
-    print("🐸 KODOKLONCAT v7.1 (Calculator) LIVE!")
+    print("🐸 KODOKLONCAT v7.3 (Tokocrypto Labels) LIVE!")
 
     while True:
         try:
@@ -89,7 +89,6 @@ def run_server():
                 cid, txt = m.get("chat", {}).get("id"), m.get("text", "")
                 if txt == "/start":
                     conn = sqlite3.connect(DB_NAME); conn.execute("INSERT OR IGNORE INTO members VALUES (?, ?)", (cid, datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S'))); conn.commit(); conn.close()
-                    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": cid, "text": "🐸 *KODOKLONCAT PUBLIC*\nUpdate harga + Simulasi Kurs Aktif.", "parse_mode": "Markdown"})
                 if cid == ADMIN_ID and txt == "/exit": sys.exit()
 
             # Broadcast Data
@@ -98,23 +97,28 @@ def run_server():
             tko = d['spots']['Tokocrypto']
             
             p = f"🐸 *KODOKLONCAT UPDATE*\n📅 `{now_str} WIB`\n"
-            p += f"──────────────────────\n💱 *CURRENCY RATES*\n"
-            p += f"• `Google SAR : Rp {d['rates']['s_idr']:,.2f}`\n"
-            p += f"• `Toko USDT  : Rp {tko:,.2f}`\n\n"
+            p += f"──────────────────────\n"
+            p += f"💱 *CURRENCY RATES*\n"
+            p += f"• `Google SAR  : Rp {d['rates']['s_idr']:,.2f}`\n"
+            p += f"• `Tokocrypto  : Rp {tko:,.2f}`\n\n"
             
-            p += f"📊 *SIMULASI KURS SAR (VIA TOKO)*\n"
+            p += f"📊 *SIMULASI KURS SAR (VIA TOKOCRYPTO)*\n"
             p += f"• `Toko / 3.78 : Rp {tko/3.78:,.2f}`\n"
             p += f"• `Toko / 3.79 : Rp {tko/3.79:,.2f}`\n"
             p += f"• `Toko / 3.80 : Rp {tko/3.80:,.2f}`\n"
             
-            p += f"──────────────────────\n🇮🇩 *INDONESIA SPOT*\n"
+            p += f"──────────────────────\n"
+            p += f"🇮🇩 *INDONESIA SPOT*\n"
             for name, price in d['spots'].items():
-                p += f"• `{name.ljust(9)}: Rp {price:,.0f}`\n"
+                p += f"• `{name.ljust(11)}: Rp {price:,.0f}`\n"
             
             p2p = d['p2p']
-            p += f"\n📱 *P2P Buy (Indo):*\n{p2p['idr_buy']}\n🛒 *P2P Sell (Indo):*\n{p2p['idr_sell']}"
-            p += f"\n──────────────────────\n🇸🇦 *SAUDI ARABIA P2P*\n"
-            p += f"📱 *P2P Buy (Saudi):*\n{p2p['sar_buy']}\n🛒 *P2P Sell (Saudi):*\n{p2p['sar_sell']}"
+            p += f"\n📱 *P2P Buy (Indo):*\n{p2p['idr_buy']}"
+            p += f"\n🛒 *P2P Sell (Indo):*\n{p2p['idr_sell']}"
+            p += f"──────────────────────\n"
+            p += f"🇸🇦 *SAUDI ARABIA P2P*\n"
+            p += f"📱 *P2P Buy (Saudi):*\n{p2p['sar_buy']}"
+            p += f"\n🛒 *P2P Sell (Saudi):*\n{p2p['sar_sell']}"
 
             conn = sqlite3.connect(DB_NAME)
             users = [r[0] for r in conn.execute("SELECT chat_id FROM members").fetchall()]
