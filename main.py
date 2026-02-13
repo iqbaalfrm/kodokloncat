@@ -154,5 +154,5 @@ def broadcast_loop():
 if __name__ == "__main__":
     setup_db()
     threading.Thread(target=listen_updates, daemon=True).start()
-    print("🐸 KODOKLONCAT v7.6 (Tax-Ready) LIVE!")
+    print("🐸 KODOKLONCAT v7.6 LIVE!")
     broadcast_loop()
