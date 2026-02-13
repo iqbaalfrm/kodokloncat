@@ -75,7 +75,6 @@ def get_p2p_api(fiat, trade_type):
         return "• Market Busy"
     except: return "• Connection Error"
 
-# --- FUNGSI KHUSUS DENGERIN CHAT (ADMIN & USER) ---
 def listen_updates():
     last_update_id = 0
     tz = pytz.timezone('Asia/Jakarta')
@@ -87,51 +86,48 @@ def listen_updates():
                 for upd in res["result"]:
                     last_update_id = upd["update_id"]
                     if "message" not in upd: continue
-                    
                     m = upd["message"]
-                    cid = m.get("chat", {}).get("id")
-                    txt = m.get("text", "")
-
+                    cid, txt = m.get("chat", {}).get("id"), m.get("text", "")
                     if txt == "/start":
                         conn = sqlite3.connect(DB_NAME)
                         conn.execute("INSERT OR IGNORE INTO members VALUES (?, ?)", (cid, datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')))
                         conn.commit(); conn.close()
-                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                                      data={"chat_id": cid, "text": "🐸 *KODOKLONCAT PUBLIC*\nUpdate harga otomatis aktif!", "parse_mode": "Markdown"})
-                    
                     if cid == ADMIN_ID:
                         if txt == "/list":
                             conn = sqlite3.connect(DB_NAME)
                             rows = conn.execute("SELECT chat_id, joined_at FROM members").fetchall()
                             conn.close()
                             msg = f"📊 *DAFTAR MEMBER ({len(rows)})*\n"
-                            for r in rows:
-                                msg += f"• `{r[0]}` - _{r[1]}_\n"
+                            for r in rows: msg += f"• `{r[0]}` - _{r[1]}_\n"
                             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": msg, "parse_mode": "Markdown"})
-                        
-                        elif txt == "/exit":
-                            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id": ADMIN_ID, "text": "🐸 Bot Off."})
-                            os._exit(0)
+                        elif txt == "/exit": os._exit(0)
         except: time.sleep(2)
 
-# --- FUNGSI BROADCAST HARGA ---
 def broadcast_loop():
     tz = pytz.timezone('Asia/Jakarta')
     while True:
         try:
             d = get_market_data()
             now_str = datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')
-            tko = d['spots']['Tokocrypto']
+            
+            # --- LOGIKA PAJAK (REVISI) ---
+            tko_raw = d['spots']['Tokocrypto']
+            # Total Biaya: 0,2222% (Fee Taker + CFX Fee)
+            tax_multiplier = 1 + (0.2222 / 100) 
+            tko_net = tko_raw * tax_multiplier
             
             p = f"🐸 *KODOKLONCAT UPDATE*\n📅 `{now_str} WIB`\n"
             p += f"──────────────────────\n"
             p += f"💱 *CURRENCY RATES*\n"
             p += f"• `Google SAR  : Rp {d['rates']['s_idr']:,.2f}`\n"
-            p += f"• `Tokocrypto  : Rp {tko:,.2f}`\n\n"
-            p += f"📊 *SIMULASI KURS SAR (VIA TOKOCRYPTO)*\n"
-            p += f"• `Toko / 3.78 : Rp {tko/3.78:,.2f}`\n"
-            p += f"• `Toko / 3.79 : Rp {tko/3.79:,.2f}`\n"
-            p += f"• `Toko / 3.80 : Rp {tko/3.80:,.2f}`\n"
+            p += f"• `Tokocrypto  : Rp {tko_raw:,.2f}`\n"
+            p += f"• `+ Biaya 0.2%: Rp {tko_net:,.2f}`\n\n"
+            
+            p += f"📊 *SIMULASI SAR (NET + FEE)*\n"
+            rates = [3.78, 3.785, 3.79, 3.795, 3.80, 3.81, 3.82]
+            for r in rates:
+                p += f"• `Toko / {r} : Rp {tko_net/r:,.2f}`\n"
+            
             p += f"──────────────────────\n"
             p += f"🇮🇩 *INDONESIA SPOT*\n"
             for name, price in d['spots'].items():
@@ -157,7 +153,6 @@ def broadcast_loop():
 
 if __name__ == "__main__":
     setup_db()
-    # Jalankan pendengar chat di thread terpisah agar tidak terhalang sleep()
     threading.Thread(target=listen_updates, daemon=True).start()
-    print("🐸 KODOKLONCAT v7.5 (Multithread) LIVE!")
+    print("🐸 KODOKLONCAT v7.6 (Tax-Ready) LIVE!")
     broadcast_loop()
