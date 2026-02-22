@@ -38,7 +38,7 @@ def fmt_cuan_line(amount, value):
     return f"• {int(amount/1000):>3}rb Riyal: +Rp {value:,.0f}\n"
 
 
-def get_p2p_api(fiat, trade_type, return_max=False):
+def get_p2p_api(fiat, trade_type, return_best=False, best_mode="max"):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {"User-Agent": "Mozilla/5.0"}
     payload = {
@@ -48,19 +48,23 @@ def get_p2p_api(fiat, trade_type, return_max=False):
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=10).json()
         lines = []
-        max_price = None
+        best_price = None
         if 'data' in res:
             for a in res['data']:
                 p = float(a['adv']['price'])
-                if max_price is None or p > max_price:
-                    max_price = p
+                if best_price is None:
+                    best_price = p
+                elif best_mode == "min" and p < best_price:
+                    best_price = p
+                elif best_mode != "min" and p > best_price:
+                    best_price = p
                 n = a['advertiser']['nickName'][:10].ljust(10)
                 curr = "Rp " if fiat == "IDR" else "SR "
                 lines.append(f"`{n}: {curr}{p:,.2f}`")
         out_text = "\n".join(lines) if lines else "• Market Offline"
-        return (out_text, max_price) if return_max else out_text
+        return (out_text, best_price) if return_best else out_text
     except:
-        return ("• Connection Error", None) if return_max else "• Connection Error"
+        return ("• Connection Error", None) if return_best else "• Connection Error"
 
 
 def get_market_data():
@@ -81,7 +85,7 @@ def get_market_data():
         except:
             idx = tko_raw
 
-        p2p_buy_indo_text, p2p_buy_indo_max = get_p2p_api('IDR', 'BUY', return_max=True)
+        p2p_buy_indo_text, p2p_buy_indo_best = get_p2p_api('IDR', 'BUY', return_best=True, best_mode="min")
         p2p_sell_indo_text = get_p2p_api('IDR', 'SELL')
         p2p_buy_saudi_text = get_p2p_api('SAR', 'BUY')
         p2p_sell_saudi_text = get_p2p_api('SAR', 'SELL')
@@ -104,11 +108,11 @@ def get_market_data():
         for d in divs:
             msg += fmt_sim_line("Toko", d, tko_net / d)
 
-        if p2p_buy_indo_max:
+        if p2p_buy_indo_best:
             msg += "\n"
-            msg += f"📊 *SIMULASI SAR P2P (NO TAX, P2P Indo Tertinggi)*\n"
+            msg += f"📊 *SIMULASI SAR P2P (NO TAX, P2P Buy Indo Termurah)*\n"
             for d in divs:
-                msg += fmt_sim_line("P2P", d, p2p_buy_indo_max / d)
+                msg += fmt_sim_line("P2P", d, p2p_buy_indo_best / d)
 
         msg += f"{SEP}\n"
         msg += f"💰 *ESTIMASI CUAN TOKOCRYPTO (Rate 3.785)*\n"
@@ -118,11 +122,11 @@ def get_market_data():
         for a in amts:
             msg += fmt_cuan_line(a, untung_per_sar * a)
 
-        if p2p_buy_indo_max:
+        if p2p_buy_indo_best:
             msg += "\n"
             msg += f"💰 *ESTIMASI CUAN P2P (Rate 3.785)*\n"
-            msg += f"_Untung Google SAR - Simulasi P2P (No Tax, P2P Indo Tertinggi)_\n"
-            untung_per_sar_p2p = google_sar - (p2p_buy_indo_max / 3.785)
+            msg += f"_Untung Google SAR - Simulasi P2P (No Tax, P2P Buy Indo Termurah)_\n"
+            untung_per_sar_p2p = google_sar - (p2p_buy_indo_best / 3.785)
             for a in amts:
                 msg += fmt_cuan_line(a, untung_per_sar_p2p * a)
 
