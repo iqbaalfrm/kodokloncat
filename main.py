@@ -43,7 +43,7 @@ def get_p2p_api(fiat, trade_type, return_best=False, best_mode="max"):
     headers = {"User-Agent": "Mozilla/5.0"}
     payload = {
         "asset": "USDT", "fiat": fiat, "merchantCheck": True,
-        "page": 1, "rows": 8, "tradeType": trade_type
+        "page": 1, "rows": 5, "tradeType": trade_type
     }
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=10).json()
