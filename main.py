@@ -357,7 +357,7 @@ def listen_updates():
 
 def broadcast_loop():
     while True:
-        msg = get_market_data_wa()
+        msg = get_market_data()
         conn = sqlite3.connect(DB_NAME)
         users = [r[0] for r in conn.execute("SELECT chat_id FROM members").fetchall()]
         conn.close()
@@ -373,7 +373,7 @@ def broadcast_loop():
 
 if __name__ == "__main__":
     setup_db()
-    print(get_market_data_wa())
+    print(get_market_data())
     threading.Thread(target=listen_updates, daemon=True).start()
     print("🐸 KODOKRIYAL BOT v9.8 RUNNING...")
     broadcast_loop()
