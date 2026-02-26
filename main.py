@@ -351,6 +351,8 @@ def listen_updates():
                         )
                     elif txt == "/wa":
                         send_telegram_message(cid, get_market_data_wa())
+                    elif txt == "/tg":
+                        send_telegram_message(cid, get_market_data())
         except:
             time.sleep(5)
 
