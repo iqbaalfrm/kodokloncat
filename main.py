@@ -30,7 +30,7 @@ def fmt_rp(value, decimals=2):
 def pre_block(lines):
     if isinstance(lines, list):
         lines = "\n".join(lines)
-    return html.escape(lines)
+    return f"<pre>{html.escape(lines)}</pre>"
 
 
 def fmt_kv_row(label, value):
@@ -132,7 +132,7 @@ def get_market_data():
 
         parts = []
         parts.append("🐸 <b>KODOKLONCAT UPDATE</b>")
-        parts.append(f"🕒 <b>{html.escape(now_str)} WIB</b>")
+        parts.append(f"🕒 <code>{html.escape(now_str)} WIB</code>")
         parts.append(html.escape(SEP))
 
         ringkasan_rows = [
@@ -154,41 +154,43 @@ def get_market_data():
 
         parts.append("2) <b>INDONESIA SPOT</b> 🇮🇩")
         parts.append(pre_block([
+            fmt_kv_row("OSL", fmt_rp(osl_raw, 0)),
             fmt_kv_row("Tokocrypto", fmt_rp(tko_raw, 0)),
             fmt_kv_row("Indodax", fmt_rp(idx, 0)),
             fmt_kv_row("Pintu Pro", fmt_rp(tko_raw, 0)),
-            fmt_kv_row("OSL", fmt_rp(osl_raw, 0)),
         ]))
 
-        parts.append("3) <b>SIMULASI SAR (OSL NET + FEE)</b>")
+        parts.append("3) <b>P2P INDONESIA BUY</b> 🇮🇩")
+        parts.append("📱 <b>Buy</b>")
+        parts.append(pre_block(p2p_buy_indo_text))
+
+        parts.append("4) <b>SIMULASI SAR (OSL NET + FEE)</b>")
         parts.append(pre_block([fmt_sim_row("OSL", d, osl_net / d) for d in divs]))
 
         if p2p_buy_indo_best:
-            parts.append("4) <b>SIMULASI SAR P2P (NO TAX)</b>")
+            parts.append("5) <b>SIMULASI SAR P2P (NO TAX)</b>")
             parts.append("<i>P2P Buy Indo termurah</i>")
             parts.append(pre_block([fmt_sim_row("P2P", d, p2p_buy_indo_best / d) for d in divs]))
 
         parts.append(html.escape(SEP))
-        parts.append("5) <b>ESTIMASI CUAN OSL (Rate 3.78)</b>")
+        parts.append("6) <b>ESTIMASI CUAN OSL (Rate 3.78)</b>")
         parts.append("<i>Google SAR - Simulasi OSL (Net + Fee)</i>")
         untung_per_sar = google_sar - (osl_net / 3.78)
         parts.append(pre_block([fmt_cuan_row(a, untung_per_sar * a) for a in amts]))
 
         if p2p_buy_indo_best:
-            parts.append("6) <b>ESTIMASI CUAN P2P (Rate 3.78)</b>")
+            parts.append("7) <b>ESTIMASI CUAN P2P (Rate 3.78)</b>")
             parts.append("<i>Google SAR - Simulasi P2P (No Tax, P2P Buy Indo termurah)</i>")
             untung_per_sar_p2p = google_sar - (p2p_buy_indo_best / 3.78)
             parts.append(pre_block([fmt_cuan_row(a, untung_per_sar_p2p * a) for a in amts]))
 
         parts.append(html.escape(SEP))
-        parts.append("7) <b>P2P INDONESIA</b> 🇮🇩")
-        parts.append("📱 <b>Buy</b>")
-        parts.append(pre_block(p2p_buy_indo_text))
+        parts.append("8) <b>P2P INDONESIA</b> 🇮🇩")
         parts.append("🛒 <b>Sell</b>")
         parts.append(pre_block(p2p_sell_indo_text))
 
         parts.append(html.escape(SEP))
-        parts.append("8) <b>P2P SAUDI ARABIA</b> 🇸🇦")
+        parts.append("9) <b>P2P SAUDI ARABIA</b> 🇸🇦")
         parts.append("📱 <b>Buy</b>")
         parts.append(pre_block(p2p_buy_saudi_text))
         parts.append("🛒 <b>Sell</b>")
@@ -196,7 +198,7 @@ def get_market_data():
 
         return "\n".join(parts)
     except Exception as e:
-        return f"<b>Error Fetching Data:</b> {html.escape(str(e))}"
+        return f"<b>Error Fetching Data:</b> <code>{html.escape(str(e))}</code>"
 
 
 def listen_updates():
