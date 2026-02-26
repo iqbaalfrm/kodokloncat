@@ -30,7 +30,7 @@ def fmt_rp(value, decimals=2):
 def pre_block(lines):
     if isinstance(lines, list):
         lines = "\n".join(lines)
-    return f"<pre>{html.escape(lines)}</pre>"
+    return html.escape(lines)
 
 
 def fmt_kv_row(label, value):
@@ -132,7 +132,7 @@ def get_market_data():
 
         parts = []
         parts.append("🐸 <b>KODOKLONCAT UPDATE</b>")
-        parts.append(f"🕒 <code>{html.escape(now_str)} WIB</code>")
+        parts.append(f"🕒 <b>{html.escape(now_str)} WIB</b>")
         parts.append(html.escape(SEP))
 
         ringkasan_rows = [
@@ -141,7 +141,7 @@ def get_market_data():
         ]
         if p2p_buy_indo_best:
             ringkasan_rows.append(fmt_kv_row("P2P Indo Buy", fmt_rp(p2p_buy_indo_best)))
-        ringkasan_rows.append(fmt_kv_row("OSL @3.785", fmt_rp(osl_net / 3.785)))
+        ringkasan_rows.append(fmt_kv_row("OSL @3.78", fmt_rp(osl_net / 3.78)))
         parts.append("📌 <b>RINGKASAN CEPAT</b>")
         parts.append(pre_block(ringkasan_rows))
 
@@ -169,15 +169,15 @@ def get_market_data():
             parts.append(pre_block([fmt_sim_row("P2P", d, p2p_buy_indo_best / d) for d in divs]))
 
         parts.append(html.escape(SEP))
-        parts.append("5) <b>ESTIMASI CUAN OSL (Rate 3.785)</b>")
+        parts.append("5) <b>ESTIMASI CUAN OSL (Rate 3.78)</b>")
         parts.append("<i>Google SAR - Simulasi OSL (Net + Fee)</i>")
-        untung_per_sar = google_sar - (osl_net / 3.785)
+        untung_per_sar = google_sar - (osl_net / 3.78)
         parts.append(pre_block([fmt_cuan_row(a, untung_per_sar * a) for a in amts]))
 
         if p2p_buy_indo_best:
-            parts.append("6) <b>ESTIMASI CUAN P2P (Rate 3.785)</b>")
+            parts.append("6) <b>ESTIMASI CUAN P2P (Rate 3.78)</b>")
             parts.append("<i>Google SAR - Simulasi P2P (No Tax, P2P Buy Indo termurah)</i>")
-            untung_per_sar_p2p = google_sar - (p2p_buy_indo_best / 3.785)
+            untung_per_sar_p2p = google_sar - (p2p_buy_indo_best / 3.78)
             parts.append(pre_block([fmt_cuan_row(a, untung_per_sar_p2p * a) for a in amts]))
 
         parts.append(html.escape(SEP))
@@ -196,7 +196,7 @@ def get_market_data():
 
         return "\n".join(parts)
     except Exception as e:
-        return f"<b>Error Fetching Data:</b> <code>{html.escape(str(e))}</code>"
+        return f"<b>Error Fetching Data:</b> {html.escape(str(e))}"
 
 
 def listen_updates():
