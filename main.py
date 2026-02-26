@@ -9,7 +9,7 @@ from datetime import datetime
 
 # ================= CONFIGURATION =================
 TOKEN = "8591550376:AAF0VMvdW5K376uJS17L9eQ9gmW21RwXwuQ"
-ADMIN_ID = 834018428
+ADMIN_IDS = {279558348, 834018428}
 DB_NAME = "kodok_data.db"
 INTERVAL = 180  # Broadcast tiap 3 menit
 # =================================================
@@ -72,6 +72,29 @@ def send_telegram_message(chat_id, text):
         data={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
         timeout=15,
     )
+
+
+def get_users_report():
+    conn = sqlite3.connect(DB_NAME)
+    rows = conn.execute(
+        "SELECT chat_id, joined_at FROM members ORDER BY joined_at DESC"
+    ).fetchall()
+    conn.close()
+
+    parts = []
+    parts.append("👥 <b>DAFTAR USER BOT</b>")
+    parts.append(f"Total user: <b>{len(rows)}</b>")
+    parts.append(html.escape(SEP))
+
+    if not rows:
+        parts.append("Belum ada user.")
+        return "\n".join(parts)
+
+    lines = [f"{i}. {chat_id} | {joined_at}" for i, (chat_id, joined_at) in enumerate(rows, 1)]
+    # Telegram message limit safety
+    body = "\n".join(lines)
+    parts.append(pre_block(body[:3500]))
+    return "\n".join(parts)
 
 
 def get_osl_spot_price():
@@ -353,6 +376,11 @@ def listen_updates():
                         send_telegram_message(cid, get_market_data_wa())
                     elif txt == "/tg":
                         send_telegram_message(cid, get_market_data())
+                    elif txt == "/users":
+                        if cid in ADMIN_IDS:
+                            send_telegram_message(cid, get_users_report())
+                        else:
+                            send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
         except:
             time.sleep(5)
 
@@ -364,7 +392,7 @@ def broadcast_loop():
         users = [r[0] for r in conn.execute("SELECT chat_id FROM members").fetchall()]
         conn.close()
 
-        for mid in set(users + [ADMIN_ID]):
+        for mid in set(users + list(ADMIN_IDS)):
             try:
                 send_telegram_message(mid, msg)
             except:
