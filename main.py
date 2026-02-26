@@ -45,6 +45,27 @@ def fmt_cuan_row(amount, value):
     return f"{int(amount/1000):>3}rb Riyal : +Rp {value:,.0f}"
 
 
+def wa_bullet(label, value):
+    return f"• {label}: {value}"
+
+
+def wa_sim_line(source, rate, value):
+    return f"• {source} @ {rate}: {fmt_rp(value)}"
+
+
+def wa_cuan_line(amount, value):
+    return f"• {int(amount/1000)}rb Riyal: +Rp {value:,.0f}"
+
+
+def wa_list_from_multiline(text):
+    if not text:
+        return "• -"
+    lines = [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+    if not lines:
+        return "• -"
+    return "\n".join(f"• {ln}" for ln in lines)
+
+
 def send_telegram_message(chat_id, text):
     requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
@@ -201,6 +222,107 @@ def get_market_data():
         return f"<b>Error Fetching Data:</b> <code>{html.escape(str(e))}</code>"
 
 
+def get_market_data_wa():
+    try:
+        sar_res = requests.get("https://api.exchangerate-api.com/v4/latest/SAR", timeout=10).json()
+        google_sar = sar_res['rates']['IDR']
+
+        toko_res = requests.get("https://api.binance.me/api/v3/ticker/price?symbol=USDTIDR", timeout=10).json()
+        tko_raw = float(toko_res['price'])
+        try:
+            osl_raw = get_osl_spot_price()
+        except:
+            osl_raw = tko_raw
+
+        osl_net = osl_raw * (1 + 0.2222 / 100)
+
+        try:
+            idx = float(requests.get("https://indodax.com/api/ticker/usdtidr").json()['ticker']['last'])
+        except:
+            idx = osl_raw
+
+        p2p_buy_indo_text, p2p_buy_indo_best = get_p2p_api('IDR', 'BUY', return_best=True, best_mode="min")
+        p2p_sell_indo_text = get_p2p_api('IDR', 'SELL')
+        p2p_buy_saudi_text = get_p2p_api('SAR', 'BUY')
+        p2p_sell_saudi_text = get_p2p_api('SAR', 'SELL')
+
+        tz = pytz.timezone('Asia/Jakarta')
+        now_str = datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')
+
+        divs = [3.78, 3.785, 3.79, 3.795, 3.8]
+        amts = [20000, 50000, 100000, 200000, 300000]
+
+        parts = []
+        parts.append("🐸 <b>KODOKLONCAT UPDATE (WA-FRIENDLY)</b>")
+        parts.append(f"🕒 <b>{html.escape(now_str)} WIB</b>")
+        parts.append(html.escape(SEP))
+
+        parts.append("📌 <b>RINGKASAN CEPAT</b>")
+        ringkasan = [
+            wa_bullet("Google SAR", fmt_rp(google_sar)),
+            wa_bullet("OSL Net", fmt_rp(osl_net)),
+        ]
+        if p2p_buy_indo_best:
+            ringkasan.append(wa_bullet("P2P Indo Buy", fmt_rp(p2p_buy_indo_best)))
+        ringkasan.append(wa_bullet("OSL @3.78", fmt_rp(osl_net / 3.78)))
+        parts.append(html.escape("\n".join(ringkasan)))
+
+        parts.append("1) <b>CURRENCY RATES</b>")
+        parts.append(html.escape("\n".join([
+            wa_bullet("Google SAR", fmt_rp(google_sar)),
+            wa_bullet("OSL", fmt_rp(osl_raw)),
+            wa_bullet("+ Biaya 0.2%", fmt_rp(osl_net)),
+        ])))
+
+        parts.append("2) <b>INDONESIA SPOT</b> 🇮🇩")
+        parts.append(html.escape("\n".join([
+            wa_bullet("OSL", fmt_rp(osl_raw, 0)),
+            wa_bullet("Tokocrypto", fmt_rp(tko_raw, 0)),
+            wa_bullet("Indodax", fmt_rp(idx, 0)),
+            wa_bullet("Pintu Pro", fmt_rp(tko_raw, 0)),
+        ])))
+
+        parts.append("3) <b>P2P INDONESIA BUY</b> 🇮🇩")
+        parts.append("📱 <b>Buy</b>")
+        parts.append(html.escape(wa_list_from_multiline(p2p_buy_indo_text)))
+
+        parts.append("4) <b>SIMULASI SAR (OSL NET + FEE)</b>")
+        parts.append(html.escape("\n".join([wa_sim_line("OSL", d, osl_net / d) for d in divs])))
+
+        if p2p_buy_indo_best:
+            parts.append("5) <b>SIMULASI SAR P2P (NO TAX)</b>")
+            parts.append("<i>P2P Buy Indo termurah</i>")
+            parts.append(html.escape("\n".join([wa_sim_line("P2P", d, p2p_buy_indo_best / d) for d in divs])))
+
+        parts.append(html.escape(SEP))
+        parts.append("6) <b>ESTIMASI CUAN OSL (Rate 3.78)</b>")
+        parts.append("<i>Google SAR - Simulasi OSL (Net + Fee)</i>")
+        untung_per_sar = google_sar - (osl_net / 3.78)
+        parts.append(html.escape("\n".join([wa_cuan_line(a, untung_per_sar * a) for a in amts])))
+
+        if p2p_buy_indo_best:
+            parts.append("7) <b>ESTIMASI CUAN P2P (Rate 3.78)</b>")
+            parts.append("<i>Google SAR - Simulasi P2P (No Tax, P2P Buy Indo termurah)</i>")
+            untung_per_sar_p2p = google_sar - (p2p_buy_indo_best / 3.78)
+            parts.append(html.escape("\n".join([wa_cuan_line(a, untung_per_sar_p2p * a) for a in amts])))
+
+        parts.append(html.escape(SEP))
+        parts.append("8) <b>P2P INDONESIA</b> 🇮🇩")
+        parts.append("🛒 <b>Sell</b>")
+        parts.append(html.escape(wa_list_from_multiline(p2p_sell_indo_text)))
+
+        parts.append(html.escape(SEP))
+        parts.append("9) <b>P2P SAUDI ARABIA</b> 🇸🇦")
+        parts.append("📱 <b>Buy</b>")
+        parts.append(html.escape(wa_list_from_multiline(p2p_buy_saudi_text)))
+        parts.append("🛒 <b>Sell</b>")
+        parts.append(html.escape(wa_list_from_multiline(p2p_sell_saudi_text)))
+
+        return "\n".join(parts)
+    except Exception as e:
+        return f"<b>Error Fetching Data:</b> <code>{html.escape(str(e))}</code>"
+
+
 def listen_updates():
     last_id = 0
     while True:
@@ -227,13 +349,15 @@ def listen_updates():
                             cid,
                             "🐸 <b>KODOKRIYAL AKTIF!</b>\nUpdate otomatis tiap 3 menit.",
                         )
+                    elif txt == "/wa":
+                        send_telegram_message(cid, get_market_data_wa())
         except:
             time.sleep(5)
 
 
 def broadcast_loop():
     while True:
-        msg = get_market_data()
+        msg = get_market_data_wa()
         conn = sqlite3.connect(DB_NAME)
         users = [r[0] for r in conn.execute("SELECT chat_id FROM members").fetchall()]
         conn.close()
@@ -249,7 +373,7 @@ def broadcast_loop():
 
 if __name__ == "__main__":
     setup_db()
-    print(get_market_data())
+    print(get_market_data_wa())
     threading.Thread(target=listen_updates, daemon=True).start()
     print("🐸 KODOKRIYAL BOT v9.8 RUNNING...")
     broadcast_loop()
