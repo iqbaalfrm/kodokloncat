@@ -12,6 +12,8 @@ TOKEN = "8591550376:AAF0VMvdW5K376uJS17L9eQ9gmW21RwXwuQ"
 ADMIN_IDS = {279558348, 834018428}
 DB_NAME = "kodok_data.db"
 INTERVAL = 180  # Broadcast tiap 3 menit
+DEPLOY_VERSION = os.getenv("DEPLOY_VERSION", "dev")
+RESET_USERS_ON_DEPLOY = os.getenv("RESET_USERS_ON_DEPLOY", "1") == "1"
 # =================================================
 SEP = "──────────────────────"
 
@@ -19,8 +21,43 @@ SEP = "──────────────────────"
 def setup_db():
     conn = sqlite3.connect(DB_NAME)
     conn.execute('''CREATE TABLE IF NOT EXISTS members (chat_id INTEGER PRIMARY KEY, joined_at TEXT)''')
+    conn.execute(
+        '''CREATE TABLE IF NOT EXISTS start_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            started_at TEXT NOT NULL
+        )'''
+    )
+    conn.execute(
+        '''CREATE TABLE IF NOT EXISTS app_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )'''
+    )
+    deleted_users = apply_deploy_reset(conn)
     conn.commit()
     conn.close()
+    return deleted_users
+
+
+def apply_deploy_reset(conn):
+    if not RESET_USERS_ON_DEPLOY:
+        return 0
+
+    last_version_row = conn.execute(
+        "SELECT value FROM app_meta WHERE key = 'last_deploy_version'"
+    ).fetchone()
+    last_version = last_version_row[0] if last_version_row else None
+
+    if last_version == DEPLOY_VERSION:
+        return 0
+
+    deleted_users = conn.execute("DELETE FROM members").rowcount
+    conn.execute(
+        "INSERT OR REPLACE INTO app_meta(key, value) VALUES('last_deploy_version', ?)",
+        (DEPLOY_VERSION,),
+    )
+    return deleted_users
 
 
 def fmt_rp(value, decimals=2):
@@ -95,6 +132,64 @@ def get_users_report():
     body = "\n".join(lines)
     parts.append(pre_block(body[:3500]))
     return "\n".join(parts)
+
+
+def get_users_history_report(limit=50):
+    conn = sqlite3.connect(DB_NAME)
+    rows = conn.execute(
+        "SELECT chat_id, started_at FROM start_history ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    unique_total = conn.execute(
+        "SELECT COUNT(DISTINCT chat_id) FROM start_history"
+    ).fetchone()[0]
+    events_total = conn.execute("SELECT COUNT(*) FROM start_history").fetchone()[0]
+    conn.close()
+
+    parts = []
+    parts.append("🗂️ <b>RIWAYAT /start</b>")
+    parts.append(f"Total event /start: <b>{events_total}</b>")
+    parts.append(f"Total user unik: <b>{unique_total}</b>")
+    parts.append(html.escape(SEP))
+
+    if not rows:
+        parts.append("Belum ada riwayat /start.")
+        return "\n".join(parts)
+
+    lines = [f"{i}. {chat_id} | {started_at}" for i, (chat_id, started_at) in enumerate(rows, 1)]
+    body = "\n".join(lines)
+    parts.append(pre_block(body[:3500]))
+    return "\n".join(parts)
+
+
+def get_admin_users_menu():
+    return "\n".join(
+        [
+            "🛠️ <b>MENU MANAJEMEN USER</b>",
+            html.escape(SEP),
+            "<code>/users</code> - daftar user aktif",
+            "<code>/users_history [limit]</code> - riwayat klik /start",
+            "<code>/user_remove &lt;chat_id&gt;</code> - hapus 1 user aktif",
+            "<code>/users_clear</code> - hapus semua user aktif",
+            "<code>/admin_users</code> - tampilkan menu ini",
+        ]
+    )
+
+
+def remove_active_user(chat_id):
+    conn = sqlite3.connect(DB_NAME)
+    deleted = conn.execute("DELETE FROM members WHERE chat_id = ?", (chat_id,)).rowcount
+    conn.commit()
+    conn.close()
+    return deleted > 0
+
+
+def clear_all_active_users():
+    conn = sqlite3.connect(DB_NAME)
+    deleted = conn.execute("DELETE FROM members").rowcount
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def get_osl_spot_price():
@@ -358,13 +453,19 @@ def listen_updates():
                     if "message" not in upd:
                         continue
                     cid = upd["message"]["chat"]["id"]
-                    txt = upd["message"].get("text", "")
+                    txt = (upd["message"].get("text", "") or "").strip()
 
-                    if txt == "/start":
+                    if txt.startswith("/start"):
+                        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         conn = sqlite3.connect(DB_NAME)
                         conn.execute(
-                            "INSERT OR IGNORE INTO members VALUES (?, ?)",
-                            (cid, datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                            "INSERT INTO start_history(chat_id, started_at) VALUES (?, ?)",
+                            (cid, now_str),
+                        )
+                        conn.execute(
+                            """INSERT INTO members(chat_id, joined_at) VALUES (?, ?)
+                            ON CONFLICT(chat_id) DO UPDATE SET joined_at = excluded.joined_at""",
+                            (cid, now_str),
                         )
                         conn.commit()
                         conn.close()
@@ -376,11 +477,52 @@ def listen_updates():
                         send_telegram_message(cid, get_market_data_wa())
                     elif txt == "/tg":
                         send_telegram_message(cid, get_market_data())
+                    elif txt == "/admin_users":
+                        if cid in ADMIN_IDS:
+                            send_telegram_message(cid, get_admin_users_menu())
+                        else:
+                            send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
                     elif txt == "/users":
                         if cid in ADMIN_IDS:
                             send_telegram_message(cid, get_users_report())
                         else:
                             send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
+                    elif txt.startswith("/users_history"):
+                        if cid not in ADMIN_IDS:
+                            send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
+                            continue
+                        limit = 50
+                        parts = txt.split()
+                        if len(parts) > 1:
+                            try:
+                                limit = max(1, min(200, int(parts[1])))
+                            except:
+                                limit = 50
+                        send_telegram_message(cid, get_users_history_report(limit))
+                    elif txt.startswith("/user_remove"):
+                        if cid not in ADMIN_IDS:
+                            send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
+                            continue
+                        parts = txt.split()
+                        if len(parts) != 2:
+                            send_telegram_message(cid, "Format: <code>/user_remove 123456789</code>")
+                            continue
+                        try:
+                            target = int(parts[1])
+                        except:
+                            send_telegram_message(cid, "chat_id harus angka.")
+                            continue
+                        removed = remove_active_user(target)
+                        if removed:
+                            send_telegram_message(cid, f"✅ User <code>{target}</code> dihapus dari user aktif.")
+                        else:
+                            send_telegram_message(cid, f"ℹ️ User <code>{target}</code> tidak ditemukan di user aktif.")
+                    elif txt == "/users_clear":
+                        if cid not in ADMIN_IDS:
+                            send_telegram_message(cid, "❌ <b>Akses ditolak</b>")
+                            continue
+                        deleted = clear_all_active_users()
+                        send_telegram_message(cid, f"✅ Semua user aktif dibersihkan. Total terhapus: <b>{deleted}</b>")
         except:
             time.sleep(5)
 
@@ -402,7 +544,9 @@ def broadcast_loop():
 
 
 if __name__ == "__main__":
-    setup_db()
+    deleted_users = setup_db()
+    if deleted_users:
+        print(f"[DEPLOY RESET] Active users cleared: {deleted_users} (DEPLOY_VERSION={DEPLOY_VERSION})")
     print(get_market_data())
     threading.Thread(target=listen_updates, daemon=True).start()
     print("🐸 KODOKRIYAL BOT v9.8 RUNNING...")
